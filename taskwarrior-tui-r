@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Function to handle SIGINT signal
+handle_sigint() {
+	echo "SIGINT received. Exiting..."
+	# Kill the taskwarrior-tui process
+	kill -KILL $tui_pid
+	exit 0
+}
+
+# Trap SIGINT signal
+trap handle_sigint SIGINT
+
+# Check if report argument is provided
+if [ -z "$1" ]; then
+	echo "Please provide a report as an argument."
+	exit 1
+fi
+
+# Initialize previous context variable
+prev_context=$(task _get rc.context)
+
+# Start taskwarrior-tui with the provided report in the background
+taskwarrior-tui -r $1 &
+# Save the PID of the taskwarrior-tui process
+tui_pid=$!
+
+# Loop indefinitely
+while true; do
+	# Get current context
+	curr_context=$(task _get rc.context)
+
+	# Check if context has changed
+	if [[ "$curr_context" != "$prev_context" ]]; then
+		# Update previous context
+		prev_context=$curr_context
+
+		# Send SIGKILL to the taskwarrior-tui process
+		kill -KILL $tui_pid
+		echo "Sent SIGKILL to taskwarrior-tui process with PID $tui_pid."
+
+		# Wait for the process to be killed
+		while kill -0 $tui_pid 2>/dev/null; do
+			echo "Waiting for taskwarrior-tui process with PID $tui_pid to be killed..."
+			sleep 0.1
+		done
+
+		# Print debug message
+		echo "Context changed to $curr_context. Restarting Taskwarrior TUI..."
+
+		# Start a new instance of taskwarrior-tui with the provided report in the background
+		taskwarrior-tui -r $1 &
+		# Update the PID of the taskwarrior-tui process
+		tui_pid=$!
+	fi
+
+	# Wait for 1 second
+	sleep 1
+done
